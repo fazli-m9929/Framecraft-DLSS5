@@ -1,0 +1,35 @@
+[project]
+name = "neural-video-studio"
+version = "0.3.2"
+description = "English-first video UI for the user-provided DLSS neural rendering feature-18 worker"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "python-multipart>=0.0.20,<1",
+    "numpy>=2.1,<3",
+    "opencv-python-headless>=4.10,<5",
+    "av>=14,<18",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.9,<1"]
+
+[project.scripts]
+nvs = "nvs.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nvs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+

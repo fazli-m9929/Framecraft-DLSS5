@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+runtime/*
+!runtime/.gitkeep
+preview/*
+!preview/.gitkeep
+data/*
+!data/.gitkeep
+*.pyc
+*.log

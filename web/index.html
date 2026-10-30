@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#17191e">
+        <title>Framecraft · Neural Video Studio</title>
+        <script>
+            // Apply the saved/system appearance before the stylesheet is painted.
+            (() => {
+                // On first use, follow the OS; afterwards remember a manual choice.
+                let savedTheme = null;
+                try {
+                    savedTheme = localStorage.getItem('framecraft-theme-v2');
+                } catch (_) {
+                    // Storage can be unavailable; the system theme still works.
+                }
+                const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                document.documentElement.dataset.theme = ['light', 'dark'].includes(savedTheme)
+                    ? savedTheme
+                    : systemTheme;
+            })();
+        </script>
+        <link rel="stylesheet" href="/static/styles.css">
+        <script src="/static/app.js" defer></script>
+    </head>
+    <body>
+        <div class="shell">
+            <aside class="rail" aria-label="Workspace navigation">
+                <a href="#workspace" class="rail-mark" title="Framecraft home" aria-label="Framecraft home"><span class="mark-glyph">F<span>.</span></span></a>
+                <div class="rail-links">
+                    <a href="#workspace" class="rail-link active"><span class="rail-symbol">◫</span><span>Studio</span></a>
+                    <a href="#queue" class="rail-link"><span class="rail-symbol">≡</span><span>Queue</span></a>
+                    <button id="railDiagnostics" type="button" class="rail-link"><span class="rail-symbol">◎</span><span>System</span></button>
+                </div>
+                <div class="rail-foot"><span class="local-bullet"></span> LOCAL</div>
+            </aside>
+
+            <div class="app">
+                <header class="appbar">
+                    <div class="crumb"><span>FRAMECRAFT</span><span class="crumb-divider">/</span><strong>Neural studio</strong></div>
+                    <div class="appbar-actions">
+                        <div class="engine-label"><span id="statusDot" class="status-dot"></span><span id="gpuState">Checking runtime…</span></div>
+                        <button class="plain-button" id="diagnoseButton" type="button">System details <span aria-hidden="true">↗</span></button>
+                        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle appearance" title="Change appearance">
+                            <span id="themeIcon" class="theme-icon" aria-hidden="true">☾</span>
+                            <span id="themeLabel">Dark</span>
+                        </button>
+                        <button class="top-upload" id="openMediaButton" type="button">+ Add footage</button>
+                    </div>
+                </header>
+
+                <main id="workspace" class="main-content">
+                    <div class="page-heading">
+                        <div><div class="overline">THE WORKSPACE <span class="overline-rule"></span> 01</div><h1>Make every frame count<span class="period">.</span></h1><p>Transform recorded gameplay using your local neural rendering runtime.</p></div>
+                        <div class="heading-side"><span class="edition">FRAMECRAFT / 0.3</span><span class="edition-note">Independent software · Not affiliated with NVIDIA</span></div>
+                    </div>
+
+                    <div class="edit-layout">
+                        <section class="editor" aria-label="Video viewer">
+                            <div class="editor-heading"><div class="overline dark">STAGE / 01</div><div class="stage-mode" id="stageMode">NO SOURCE</div></div>
+                            <div class="stage" id="stage">
+                                <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Select or drop video file">
+                                    <div class="empty-art" aria-hidden="true"><div class="art-frame one"></div><div class="art-frame two"></div><div class="art-play">▶</div></div>
+                                    <div class="drop-large">Your next render starts here.</div>
+                                    <p>Drop a video recording or choose a local file.</p>
+                                    <span class="drop-cta">Choose footage <span>↗</span></span>
+                                    <small>MP4 · MKV · MOV · WEBM · AVI</small>
+                                </div>
+                                <input type="file" id="fileInput" accept=".mp4,.mkv,.webm,.mov,.avi,.m4v" hidden>
+                                <video id="sourcePlayer" class="stage-video" controls playsinline preload="metadata" hidden></video>
+                                <video id="resultPlayer" class="stage-video" controls playsinline preload="metadata" hidden></video>
+                                <div id="previewArea" class="preview-area" hidden>
+                                    <div class="compare-label"><span>BEFORE</span><span>AFTER</span></div>
+                                    <div id="comparison" class="comparison"><img id="beforeImg" alt="Source still"><div id="afterClip" class="after-clip"><img id="afterImg" alt="Processed still"></div><div id="splitLine" class="split-line"><span class="split-handle">↔</span></div></div>
+                                    <input id="compareSlider" type="range" min="0" max="100" value="50" aria-label="Compare before and after">
+                                    <div id="previewNote" class="compare-note">Move slider to compare</div>
+                                </div>
+                                <div class="stage-corner">FC / NEURAL</div>
+                            </div>
+                            <div class="stage-toolbar">
+                                <div class="view-switch" aria-label="Viewer content">
+                                    <button id="viewSource" type="button" class="view-chip selected" disabled>Source</button>
+                                    <button id="viewOutput" type="button" class="view-chip" disabled>Result</button>
+                                    <button id="viewCompare" type="button" class="view-chip" disabled>Compare still</button>
+                                </div>
+                                <div class="preview-actions"><button id="previewButton" type="button" class="outline-action" disabled>Generate before / after</button></div>
+                            </div>
+                            <div class="file-strip"><div class="file-indicator">◧</div><div class="file-info"><strong id="sourceName">No source selected</strong><span id="uploadState">Media stays on your machine.</span></div><div id="sourceSize" class="file-size">—</div></div>
+                            <div class="upload-progress" id="uploadProgress" hidden><span id="uploadFill"></span></div>
+                            <div class="sequence-head"><div><span class="overline dark">SEQUENCE / 01</span><span class="sequence-note">Source playhead</span></div><output id="timecode">00:00 / 00:00</output></div>
+                            <div class="timeline"><input id="seekSlider" type="range" min="0" max="1000" value="0" disabled aria-label="Video seek position"><div class="timeline-ruler"><span>IN</span><span>25%</span><span>50%</span><span>75%</span><span>OUT</span></div></div>
+                            <div class="below-stage"><span><span class="signal">●</span> Runs on your machine</span><span>Native renderer · No cloud upload</span></div>
+                        </section>
+
+                        <aside class="inspector" aria-label="Processing inspector">
+                            <div class="inspector-title"><span class="overline dark">INSPECTOR / 02</span><span class="inspector-icon">☷</span></div>
+                            <h2>Render settings</h2>
+                            <div class="inspector-tabs" role="tablist" aria-label="Render settings panels">
+                                <button type="button" data-tab="look" class="tab active" role="tab" aria-selected="true">Look</button>
+                                <button type="button" data-tab="deliver" class="tab" role="tab" aria-selected="false">Export</button>
+                                <button type="button" data-tab="cut" class="tab" role="tab" aria-selected="false">Cuts</button>
+                            </div>
+                            <div class="inspector-scroll">
+                                <section class="tab-page" data-page="look" role="tabpanel">
+                                    <div class="field-label"><label for="profile">Rendering character</label><span class="field-tip">FEATURE 18</span></div>
+                                    <select id="profile"><option>Faithful</option><option>Natural</option><option selected>Strong / Cinematic</option><option>Extreme / Overdrive</option></select>
+                                    <p class="helper">These profiles modify the original native renderer's parameters. They do not change the underlying model.</p>
+                                    <div class="parameter-heading"><strong>Fine adjustments</strong><span>MANUAL</span></div>
+                                    <div class="sliders">
+                                        <div class="slider-field"><div><label for="intensity">Intensity</label><output id="intensityValue">1.65</output></div><input id="intensity" type="range" min="0" max="3" step="0.05" value="1.65"></div>
+                                        <div class="slider-field"><div><label for="localTone">Local tone</label><output id="localToneValue">1.40</output></div><input id="localTone" type="range" min="0" max="3" step="0.05" value="1.40"></div>
+                                        <div class="slider-field"><div><label for="localStructure">Local structure</label><output id="localStructureValue">1.50</output></div><input id="localStructure" type="range" min="0" max="3" step="0.05" value="1.50"></div>
+                                        <div class="slider-field"><div><label for="skinStructure">Skin structure</label><output id="skinStructureValue">1.00</output></div><input id="skinStructure" type="range" min="-1" max="3" step="0.05" value="1.00"></div>
+                                    </div>
+                                    <div class="parameter-heading advanced"><strong>Temporal behavior</strong><span>ADVANCED</span></div>
+                                    <label for="warmup">Warmup frames</label><input id="warmup" type="number" min="0" max="1000" value="120">
+                                    <p class="helper">Used by the native temporal rendering pipeline.</p>
+                                </section>
+                                <section class="tab-page" data-page="deliver" role="tabpanel" hidden>
+                                    <div class="field-label"><label for="exportPreset">Export recipe</label><span class="field-tip">FFMPEG</span></div>
+                                    <select id="exportPreset">
+                                        <option selected>HEVC Main10 - Balanced (CQ20)</option>
+                                        <option>HEVC Main10 - Maximum quality (CQ18)</option>
+                                        <option>HEVC Main10 - Smaller files (CQ24)</option>
+                                        <option>H.264 - Compatible (CQ20)</option>
+                                        <option>AV1 - Efficient (CQ20)</option>
+                                        <option>Custom</option>
+                                    </select>
+                                    <div class="recipe-box"><div class="recipe-icon" id="recipeIcon">H.265</div><div><strong id="recipeTitle">Balanced quality</strong><p id="recipeDescription">HEVC Main10 · P7 · CQ20. High-quality lossy output, optimized for efficient storage.</p></div></div>
+                                    <div id="customExportFields"><div class="two-fields"><div><label for="codec">Video codec</label><select id="codec"><option>H.264</option><option>HEVC</option><option>AV1</option></select></div><div><label for="container">Container</label><select id="container"><option>MP4</option><option>MKV</option></select></div></div>
+                                        <div><label for="quality">Quality</label><select id="quality"><option>High</option><option>Balanced</option><option>Small</option><option>Lossless</option></select></div></div>
+                                    <div><label for="targetFps">Output frame rate</label><select id="targetFps"><option>Source</option><option selected>60</option></select></div>
+                                    <p class="helper">Recipes set codec and quality. Frame rate remains selectable; 60 FPS duplicates/drops frames if needed, it does not generate new DLSS frames.</p>
+                                </section>
+                                <section class="tab-page" data-page="cut" role="tabpanel" hidden>
+                                    <div class="field-label"><label for="clips">Keep these intervals</label><span class="field-tip">SECONDS</span></div>
+                                    <textarea id="clips" rows="5" spellcheck="false" placeholder="0-547&#10;945-end"></textarea>
+                                    <div class="recipe-box cut-recipe"><div class="recipe-icon">✂</div><div><strong>Video and audio stay paired</strong><p>One interval per line, in ascending order. Blank means process the complete recording.</p></div></div>
+                                    <div class="cut-example"><span>EXAMPLE</span><code>0-547<br>945-end</code><p>Removes the section from 547 to 945 seconds.</p></div>
+                                </section>
+                            </div>
+                            <div class="inspector-footer"><button id="renderButton" class="render-button" type="button" disabled><span>Render with DLSS</span><span>↗</span></button><p>Available only when the NVIDIA runtime and source are ready.</p></div>
+                        </aside>
+                    </div>
+
+                    <section id="queue" class="queue-section">
+                        <div class="queue-title"><div><div class="overline dark">OUTPUT LIBRARY / 03</div><h2>Render queue<span class="period">.</span></h2><p>Track conversion progress, inspect results, and save your rendered files.</p></div><button id="refreshButton" class="outline-action" type="button">↻ Refresh jobs</button></div>
+                        <div id="jobList" class="job-list"><div class="queue-empty">Your completed renders will appear here.</div></div>
+                        <div class="info error" id="errorBox" role="alert" hidden></div>
+                    </section>
+                    <footer>FRAMECRAFT · Local-first neural video workflow <span>·</span> <a href="/docs" target="_blank" rel="noopener">Developer API ↗</a> <span>·</span> Unofficial DLSS integration</footer>
+                </main>
+            </div>
+        </div>
+        <dialog id="diagnostics" aria-label="System diagnostics">
+            <div class="modal-head">
+                <div>
+                    <div class="overline dark">SYSTEM HEALTH</div>
+                    <h2>Runtime diagnostics</h2>
+                </div>
+                <button id="closeDiagnostics" class="modal-close" type="button" aria-label="Close diagnostics">×</button>
+            </div>
+            <p class="diagnostics-intro">Environment checks indicate whether the required tools are available. A successful DLSS frame evaluation is still needed to confirm rendering.</p>
+            <div class="health-grid" aria-label="Hardware and runtime status">
+                <div class="health-tile">
+                    <span>GPU</span>
+                    <strong id="healthGpuName">Checking…</strong>
+                    <small id="healthGpuInfo">—</small>
+                </div>
+                <div class="health-tile" id="healthRenderTile">
+                    <span>DLSS runtime</span>
+                    <strong id="healthRender">Checking…</strong>
+                    <small id="healthRenderNote">—</small>
+                </div>
+                <div class="health-tile" id="healthPreviewTile">
+                    <span>Image preview</span>
+                    <strong id="healthPreview">Checking…</strong>
+                    <small>Native preview dependency</small>
+                </div>
+            </div>
+            <div class="health-paths">
+                <div><span>FFmpeg</span><code id="healthFfmpeg">Checking…</code></div>
+                <div><span>FFprobe</span><code id="healthFfprobe">Checking…</code></div>
+            </div>
+            <details class="diagnostics-raw">
+                <summary>Show raw diagnostics JSON</summary>
+                <pre id="diagnosticsText"></pre>
+            </details>
+            <button id="diagnosticsRefresh" class="outline-action" type="button">Refresh diagnostics</button>
+        </dialog>
+    </body>
+</html>
