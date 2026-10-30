@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -9,7 +10,15 @@ from nvs.main import create_app
 from nvs.schemas import JobView, RenderOptions, Status
 
 
-def test_completed_render_can_be_sampled_and_downloaded(tmp_path):
+def test_completed_render_can_be_sampled_and_downloaded(tmp_path: Path) -> None:
+    """Exercise full-result serving and cached FFmpeg browser sample generation.
+
+    Args:
+        tmp_path (Path): The isolated temporary directory supplied by pytest.
+
+    Returns:
+        None: No value is returned.
+    """
     data = tmp_path / "data"
     config = Settings(data_dir=data, runtime_dir=tmp_path / "runtime", preview_dir=tmp_path / "preview")
     output = data / "outputs"
@@ -36,7 +45,15 @@ def test_completed_render_can_be_sampled_and_downloaded(tmp_path):
         assert client.get('/api/jobs/absent/sample').status_code == 404
 
 
-def test_new_ui_is_english_and_has_viewer_tabs(tmp_path):
+def test_new_ui_is_english_and_has_viewer_tabs(tmp_path: Path) -> None:
+    """Verify the editor page exposes the expected viewer and render controls.
+
+    Args:
+        tmp_path (Path): The isolated temporary directory supplied by pytest.
+
+    Returns:
+        None: No value is returned.
+    """
     config = Settings(data_dir=tmp_path / 'data', runtime_dir=tmp_path / 'runtime',
                       preview_dir=tmp_path / 'preview')
     with TestClient(create_app(config)) as client:
@@ -49,11 +66,20 @@ def test_new_ui_is_english_and_has_viewer_tabs(tmp_path):
         assert client.get('/api/health').json()['version'] == '0.3.2'
 
 
-def test_recipe_ui_has_all_choices_and_frame_rate_is_outside_custom_panel(tmp_path):
-    from nvs.config import Settings
-    from nvs.main import create_app
+def test_recipe_ui_has_all_choices_and_frame_rate_is_outside_custom_panel(tmp_path: Path) -> None:
+    """Verify recipe choices and the independent frame-rate control appear in the UI.
+
+    Args:
+        tmp_path (Path): The isolated temporary directory supplied by pytest.
+
+    Returns:
+        None: No value is returned.
+    """
     from fastapi.testclient import TestClient
+
+    from nvs.config import Settings
     from nvs.export_presets import RECIPES
+    from nvs.main import create_app
     with TestClient(create_app(Settings(data_dir=tmp_path / "d"))) as client:
         html = client.get("/").text
         for name in RECIPES:

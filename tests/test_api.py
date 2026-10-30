@@ -1,4 +1,6 @@
+
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -6,7 +8,15 @@ from nvs.config import Settings
 from nvs.main import create_app
 
 
-def test_server_endpoints(tmp_path):
+def test_server_endpoints(tmp_path: Path) -> None:
+    """Exercise uploads, queue failures, and API responses without a native runtime.
+
+    Args:
+        tmp_path (Path): The isolated temporary directory supplied by pytest.
+
+    Returns:
+        None: No value is returned.
+    """
     cfg = Settings(
         data_dir=tmp_path / "data", runtime_dir=tmp_path / "runtime",
             preview_dir=tmp_path / "preview"
@@ -20,7 +30,7 @@ def test_server_endpoints(tmp_path):
         caps = client.get('/api/capabilities').json()
         assert caps['render_available'] is False
         assert client.get('/api/jobs').json() == []
-        
+
         bad = client.post('/api/uploads', files={'file': ('x.txt', b'hello')})
         assert bad.status_code == 400
         uploaded = client.post('/api/uploads', files={'file': ('example.mp4', b'fake video bytes')})

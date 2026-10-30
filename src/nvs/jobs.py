@@ -5,6 +5,7 @@ import queue
 import threading
 import time
 import uuid
+from _thread import LockType
 from pathlib import Path
 
 from .config import Settings
@@ -15,9 +16,18 @@ from .schemas import JobView, RenderOptions, Status, now_utc
 
 
 class JobManager:
-    """Single native GPU worker with queued jobs, status persistence and cancellation."""
+    """Run a single render queue with persisted status and cancellation."""
 
-    def __init__(self, settings: Settings, hardware_lock: threading.Lock | None = None):
+    def __init__(self, settings: Settings, hardware_lock: LockType | None = None) -> None:
+        """Restore job records and start the background render queue.
+
+        Args:
+            settings (Settings): Application paths, limits, and runtime configuration.
+            hardware_lock (LockType | None): An optional shared lock preventing concurrent preview and video rendering.
+
+        Returns:
+            None: No value is returned.
+        """
         self.settings = settings
         self.hardware_lock = hardware_lock or threading.Lock()
         self.lock = threading.RLock()
@@ -33,13 +43,35 @@ class JobManager:
 
     @property
     def active(self) -> bool:
+        """Check whether the queue currently has an active render.
+
+        Returns:
+            bool: True when a job is being processed.
+        """
         with self.lock:
             return self._active is not None
 
     def _record_path(self, job_id: str) -> Path:
+        """Build the on-disk metadata path for a job.
+
+        Args:
+            job_id (str): The render job identifier.
+
+        Returns:
+            Path: The job's JSON metadata path.
+        """
         return self.settings.data / "jobs" / f"{job_id}.json"
 
     def _save(self, job: JobView, *, force: bool = False) -> None:
+        """Atomically persist a job, throttling writes unless forced.
+
+        Args:
+            job (JobView): The job snapshot to persist.
+            force (bool): Whether to bypass the persistence rate limit.
+
+        Returns:
+            None: No value is returned.
+        """
         now = time.monotonic()
         if not force and now - self.persisted.get(job.id, -999) < 1.0:
             return
@@ -50,6 +82,11 @@ class JobManager:
         self.persisted[job.id] = now
 
     def _restore(self) -> None:
+        """Load saved jobs and mark interrupted work as failed.
+
+        Returns:
+            None: No value is returned.
+        """
         for path in (self.settings.data / "jobs").glob("*.json"):
             try:
                 job = JobView.model_validate_json(path.read_text(encoding="utf-8"))
@@ -62,6 +99,16 @@ class JobManager:
                 continue
 
     def submit(self, upload_id: str, filename: str, options: RenderOptions) -> JobView:
+        """Persist and enqueue a new render job.
+
+        Args:
+            upload_id (str): The stored upload hexadecimal identifier.
+            filename (str): The original source filename shown in job records.
+            options (RenderOptions): The validated native and export settings.
+
+        Returns:
+            JobView: An independent snapshot of the queued job.
+        """
         with self.lock:
             if self._closed:
                 raise RuntimeError("Job manager is shutting down")
@@ -75,16 +122,37 @@ class JobManager:
             return job.model_copy(deep=True)
 
     def get(self, job_id: str) -> JobView | None:
+        """Look up a job without exposing mutable internal state.
+
+        Args:
+            job_id (str): The render job identifier.
+
+        Returns:
+            JobView | None: An independent job snapshot, or None when unknown.
+        """
         with self.lock:
             item = self.jobs.get(job_id)
             return item.model_copy(deep=True) if item else None
 
     def all(self) -> list[JobView]:
+        """List independent job snapshots in newest-first order.
+
+        Returns:
+            list[JobView]: Snapshots sorted by descending creation time.
+        """
         with self.lock:
             return [job.model_copy(deep=True) for job in sorted(self.jobs.values(),
                     key=lambda x: x.created_at, reverse=True)]
 
     def cancel(self, job_id: str) -> JobView | None:
+        """Cancel pending work or stop an active job's subprocesses.
+
+        Args:
+            job_id (str): The render job identifier.
+
+        Returns:
+            JobView | None: The updated job snapshot, or None when unknown.
+        """
         with self.lock:
             job = self.jobs.get(job_id)
             if job is None:
@@ -101,6 +169,16 @@ class JobManager:
             return job.model_copy(deep=True)
 
     def _progress(self, job_id: str, fraction: float, message: str) -> None:
+        """Clamp and persist a render's progress and status message.
+
+        Args:
+            job_id (str): The render job identifier.
+            fraction (float): The completion fraction, clamped to the range zero to one.
+            message (str): The human-readable progress description.
+
+        Returns:
+            None: No value is returned.
+        """
         with self.lock:
             job = self.jobs[job_id]
             job.progress = max(0, min(1, fraction))
@@ -108,6 +186,11 @@ class JobManager:
             self._save(job)
 
     def _work(self) -> None:
+        """Consume queued jobs and persist their success, failure, or cancellation.
+
+        Returns:
+            None: No value is returned.
+        """
         while True:
             job_id = self.queue.get()
             try:
@@ -167,6 +250,11 @@ class JobManager:
                 self.queue.task_done()
 
     def shutdown(self) -> None:
+        """Stop accepting jobs, cancel active work, and wait briefly for queue shutdown.
+
+        Returns:
+            None: No value is returned.
+        """
         with self.lock:
             self._closed = True
             for control in self.controls.values():

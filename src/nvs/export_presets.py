@@ -14,6 +14,18 @@ LEGACY_HEVC_CQ20 = "HEVC 10-bit / NVENC P7 CQ20"
 
 @dataclass(frozen=True, slots=True)
 class ExportRecipe:
+    """Describe the encoder, pixel format, quality, and audio settings of an export.
+
+    Args:
+        encoder (str): The FFmpeg encoder name.
+        codec (str): The display codec name.
+        pix_fmt (str): The encoded pixel format.
+        preset (str): The FFmpeg encoder speed/quality preset.
+        cq (int): The constant-quality target.
+        audio_bitrate (str): The AAC audio bitrate.
+        audio_rate (int): The audio sample rate in Hz.
+        main10 (bool): Whether HEVC Main10 is required.
+    """
     encoder: str
     codec: str
     pix_fmt: str
@@ -39,6 +51,14 @@ RECIPES: dict[str, ExportRecipe] = {
 
 
 def selected_recipe(name: str) -> ExportRecipe | None:
+    """Resolve a named or legacy export recipe, leaving Custom unconfigured.
+
+    Args:
+        name (str): The command or recipe name to resolve.
+
+    Returns:
+        ExportRecipe | None: The selected recipe, or None for Custom and its legacy alias.
+    """
     if name in (CUSTOM, LEGACY_CUSTOM):
         return None
     if name == LEGACY_HEVC_CQ20:
@@ -47,4 +67,9 @@ def selected_recipe(name: str) -> ExportRecipe | None:
 
 
 def recipe_names() -> tuple[str, ...]:
+    """List Custom followed by the supported export recipe names.
+
+    Returns:
+        tuple[str, ...]: The ordered recipe names.
+    """
     return (CUSTOM, *RECIPES)

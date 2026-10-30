@@ -3,11 +3,17 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from typing import Any
 
 from .config import Settings
 
 
-def gpu_inventory() -> list[dict]:
+def gpu_inventory() -> list[dict[str, Any]]:
+    """Query NVIDIA GPU names, drivers, memory, and compatibility hints.
+
+    Returns:
+        list[dict[str, Any]]: Detected GPU records, or an empty list when detection fails.
+    """
     try:
         proc = subprocess.run(
             [
@@ -35,7 +41,15 @@ def gpu_inventory() -> list[dict]:
     return result
 
 
-def capabilities(settings: Settings) -> dict:
+def capabilities(settings: Settings) -> dict[str, Any]:
+    """Check platform, binary, GPU, and FFmpeg prerequisites without running inference.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+
+    Returns:
+        dict[str, Any]: Runtime availability flags, resolved tool paths, and diagnostic details.
+    """
     gpus = gpu_inventory()
     missing = [str(p) for p in (settings.worker, settings.model) if not p.is_file()]
     ffmpeg = settings.resolve_command("ffmpeg")

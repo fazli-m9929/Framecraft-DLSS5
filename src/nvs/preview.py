@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from .config import Settings
 from .media import probe_video, run_command
@@ -12,7 +13,17 @@ from .schemas import PreviewRequest
 from .uploads import UploadInfo
 
 
-def make_preview(settings: Settings, info: UploadInfo, payload: PreviewRequest) -> dict:
+def make_preview(settings: Settings, info: UploadInfo, payload: PreviewRequest) -> dict[str, Any]:
+    """Extract a source frame and process it with the separate native image worker.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        info (UploadInfo): The stored source-upload metadata and path.
+        payload (PreviewRequest): The timestamp and render options for the image preview.
+
+    Returns:
+        dict[str, Any]: PNG data URLs, clamped native parameters, and a preview note.
+    """
     if not settings.preview_cli.is_file():
         raise RuntimeError("Preview executable missing: preview/dlssnr-image.exe")
     if not (settings.preview / "caller" / "nvngx.dll").is_file():

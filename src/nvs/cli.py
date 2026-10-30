@@ -8,6 +8,11 @@ from .hardware import capabilities
 
 
 def main() -> None:
+    """Parse CLI options and run diagnostics or the local web server.
+
+    Returns:
+        None: No value is returned.
+    """
     parser = argparse.ArgumentParser(description="Neural Video Studio")
     parser.add_argument(
         "command", choices=["serve", "doctor"],

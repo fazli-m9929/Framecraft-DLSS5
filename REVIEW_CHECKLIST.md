@@ -5,7 +5,7 @@ Use this on your actual **Windows RTX** host. The automated tests check protocol
 ## 0. Clean install
 
 - [ ] `uv sync --extra dev` succeeds on Python 3.12 or 3.13.
-- [ ] `.\scripts\import-runtime.ps1 -Source 'C:\path\to\your\working\DLSS5-Video-Converter'` reports both worker and model as OK.
+- [ ] Download FFmpeg/ffprobe and place the matching native worker/model manually as shown in [README.md](README.md#download-and-place-the-external-files).
 - [ ] `uv run nvs doctor` lists your GPU, detects FFmpeg/ffprobe, and reports `render_available: true`.
 - [ ] `uv run pytest -q` passes.
 - [ ] `uv run nvs serve` launches the app at `http://127.0.0.1:7860`.

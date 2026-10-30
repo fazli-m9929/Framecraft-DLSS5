@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from threading import Lock
 
@@ -13,10 +14,26 @@ from .jobs import JobManager
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    """Build the FastAPI application with API routes and static editor assets.
+
+    Args:
+        settings (Settings | None): Application paths, limits, and runtime configuration.
+
+    Returns:
+        FastAPI: The configured web application.
+    """
     config = settings or get_settings()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """Initialize application state and stop the render queue on shutdown.
+
+        Args:
+            app (FastAPI): The FastAPI application whose resources are managed.
+
+        Returns:
+            AsyncIterator[None]: An async iterator yielding once while the application is running.
+        """
         config.make_directories()
         app.state.settings = config
         app.state.preview_lock = Lock()
@@ -36,7 +53,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=ui), name="static")
 
     @app.get("/", include_in_schema=False)
-    def index():
+    def index() -> FileResponse:
+        """Serve the editor entry page.
+
+        Returns:
+            FileResponse: The HTML file response.
+        """
         return FileResponse(ui / "index.html")
 
     return app

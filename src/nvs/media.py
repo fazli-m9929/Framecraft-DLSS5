@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 from .config import Settings
 from .export_presets import selected_recipe
@@ -15,6 +16,19 @@ from .schemas import Clip, RenderOptions
 
 @dataclass(frozen=True, slots=True)
 class VideoInfo:
+    """Describe normalized source-video dimensions, timing, HDR, and audio presence.
+
+    Args:
+        width (int): The display width in pixels.
+        height (int): The display height in pixels.
+        rotation (int): The normalized rotation in degrees.
+        frame_count (int): The decoded source frame count.
+        frame_rate (Fraction): The rational source frame rate.
+        time_base (Fraction): The source timestamp time base.
+        duration (float): The duration in seconds.
+        hdr (bool): Whether the source uses PQ or HLG transfer.
+        has_audio (bool): Whether the source contains audio.
+    """
     width: int
     height: int
     rotation: int
@@ -25,13 +39,27 @@ class VideoInfo:
     hdr: bool
     has_audio: bool
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize video metadata using a numeric frame rate.
+
+        Returns:
+            dict[str, Any]: JSON-compatible video metadata.
+        """
         return {"width": self.width, "height": self.height, "rotation": self.rotation,
                 "frames": self.frame_count, "fps": float(self.frame_rate),
                 "duration": self.duration, "hdr": self.hdr, "has_audio": self.has_audio}
 
 
-def run_command(command: list[str], *, timeout: int | None = 180) -> subprocess.CompletedProcess:
+def run_command(command: list[str], *, timeout: int | None = 180) -> subprocess.CompletedProcess[str]:
+    """Run a media command with captured UTF-8 output and a timeout.
+
+    Args:
+        command (list[str]): The executable and argument list to run.
+        timeout (int | None): The command timeout in seconds, or None to wait indefinitely.
+
+    Returns:
+        subprocess.CompletedProcess[str]: The completed process with exit status, stdout, and stderr.
+    """
     try:
         return subprocess.run(
             command, capture_output=True, text=True, timeout=timeout,
@@ -42,7 +70,17 @@ def run_command(command: list[str], *, timeout: int | None = 180) -> subprocess.
         raise RuntimeError(f"Command timed out: {command[0]}") from exc
 
 
-def ffprobe(settings: Settings, args: list[str], *, timeout: int = 300) -> dict:
+def ffprobe(settings: Settings, args: list[str], *, timeout: int = 300) -> dict[str, Any]:
+    """Run ffprobe and parse its JSON output, raising on command failure.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        args (list[str]): The additional ffprobe arguments.
+        timeout (int): The command timeout in seconds, or None to wait indefinitely.
+
+    Returns:
+        dict[str, Any]: The parsed ffprobe metadata.
+    """
     exe = settings.resolve_command("ffprobe")
     if not exe:
         raise RuntimeError("ffprobe not found")
@@ -53,6 +91,15 @@ def ffprobe(settings: Settings, args: list[str], *, timeout: int = 300) -> dict:
 
 
 def probe_video(settings: Settings, video: Path) -> VideoInfo:
+    """Inspect source video dimensions, rotation, timing, color transfer, and audio.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        video (Path): The source video path to inspect.
+
+    Returns:
+        VideoInfo: Validated metadata for the source video's first video stream.
+    """
     info = ffprobe(settings, ["-show_entries",
         "stream=codec_type,width,height,avg_frame_rate,r_frame_rate,time_base,nb_frames,color_transfer:stream_tags=rotate:stream_side_data=rotation:format=duration",
         str(video)])
@@ -91,17 +138,30 @@ def probe_video(settings: Settings, video: Path) -> VideoInfo:
 
 
 def exact_frame_count(settings: Settings, path: Path) -> int:
+    """Decode and count the first video stream using ffprobe.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        path (Path): The filesystem path to resolve or process.
+
+    Returns:
+        int: The number of decoded video frames.
+    """
     result = ffprobe(settings, ["-count_frames", "-select_streams", "v:0",
         "-show_entries", "stream=nb_read_frames", str(path)], timeout=3600)
     return int((result.get("streams") or [{}])[0].get("nb_read_frames") or 0)
 
 
 def encoder_available(settings: Settings, encoder: str, *, main10: bool = False) -> bool:
-    """Check that FFmpeg was compiled with an encoder, not whether a tiny
-    synthetic NVENC job happens to work. The actual job validates the GPU.
+    """Check FFmpeg's encoder list without treating it as a hardware execution test.
 
-    The previous 64x64/1fps probe produced false negatives on RTX machines.
-    main10 remains for backward-compatible callers; it is not simulated here.
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        encoder (str): The FFmpeg video encoder name to look up.
+        main10 (bool): A retained compatibility flag; encoder listing does not probe Main10 hardware.
+
+    Returns:
+        bool: True when the selected FFmpeg build lists the encoder.
     """
     exe = settings.resolve_command("ffmpeg")
     if not exe:
@@ -113,6 +173,15 @@ def encoder_available(settings: Settings, encoder: str, *, main10: bool = False)
 
 
 def encoder_args(settings: Settings, options: RenderOptions) -> tuple[list[str], str]:
+    """Select video encoder arguments from an export recipe or custom options.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        options (RenderOptions): The validated native and export settings.
+
+    Returns:
+        tuple[list[str], str]: The FFmpeg video arguments and selected encoder name.
+    """
     recipe = selected_recipe(options.export_preset)
     if recipe is not None:
         if not encoder_available(settings, recipe.encoder):
@@ -153,7 +222,18 @@ def encoder_args(settings: Settings, options: RenderOptions) -> tuple[list[str],
 def start_encoder(
     settings: Settings, path: Path, options: RenderOptions,
     control: ProcessControl
-) -> tuple[subprocess.Popen, ProcessLog, str]:
+) -> tuple[subprocess.Popen[bytes], ProcessLog, str]:
+    """Launch FFmpeg to encode incoming NUT frames and register cancellation.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        path (Path): The filesystem path to resolve or process.
+        options (RenderOptions): The validated native and export settings.
+        control (ProcessControl): The shared subprocess cancellation controller.
+
+    Returns:
+        tuple[subprocess.Popen[bytes], ProcessLog, str]: The binary-mode encoder process, stderr collector, and encoder name.
+    """
     exe = settings.resolve_command("ffmpeg")
     if not exe:
         raise RuntimeError("ffmpeg not found")
@@ -173,7 +253,15 @@ def start_encoder(
 
 
 def effective_clips(clips: list[Clip], duration: float) -> list[tuple[float, float]]:
-    """Return validated, half-open clips. Empty clips means complete source."""
+    """Resolve open clip ends and validate intervals against the source duration.
+
+    Args:
+        clips (list[Clip]): The ordered, half-open source intervals in seconds.
+        duration (float): The source duration in seconds.
+
+    Returns:
+        list[tuple[float, float]]: Half-open source intervals, or the full duration when no clips are supplied.
+    """
     if not clips:
         return [(0., duration)]
     result: list[tuple[float, float]] = []
@@ -186,7 +274,14 @@ def effective_clips(clips: list[Clip], duration: float) -> list[tuple[float, flo
 
 
 def audio_filter(clips: list[tuple[float, float]]) -> str:
-    """Use exactly the selected source intervals for audio, including sample-accurate trimming."""
+    """Build a filter graph that trims and concatenates selected source audio intervals.
+
+    Args:
+        clips (list[tuple[float, float]]): The ordered, half-open source intervals in seconds.
+
+    Returns:
+        str: The FFmpeg audio filter graph ending in the [a] output label.
+    """
     nodes = []
     for i, (start, end) in enumerate(clips):
         nodes.append(f"[1:a:0]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS[a{i}]")
@@ -203,6 +298,21 @@ def mux_output(
     options: RenderOptions, control: ProcessControl,
     clips: list[tuple[float, float]], has_audio: bool
 ) -> None:
+    """Copy encoded video into the final container with synchronized source audio.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        processed (Path): The intermediate file containing already-encoded video.
+        original (Path): The original source used for audio and metadata.
+        final (Path): The destination path for the muxed output.
+        options (RenderOptions): The validated native and export settings.
+        control (ProcessControl): The shared subprocess cancellation controller.
+        clips (list[tuple[float, float]]): The ordered, half-open source intervals in seconds.
+        has_audio (bool): Whether the source contains an audio stream.
+
+    Returns:
+        None: No value is returned.
+    """
     exe = settings.resolve_command("ffmpeg")
     if not exe:
         raise RuntimeError("ffmpeg unavailable")
@@ -257,8 +367,18 @@ def mux_output(
 def verify_export(
     settings: Settings, path: Path, options: RenderOptions,
     expected_audio: bool
-) -> dict:
-    """Check actual file metadata; never trust extension/command arguments alone."""
+) -> dict[str, Any]:
+    """Validate actual exported codec, pixel format, audio, and requested frame rate.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        path (Path): The filesystem path to resolve or process.
+        options (RenderOptions): The validated native and export settings.
+        expected_audio (bool): Whether the verified export must contain audio.
+
+    Returns:
+        dict[str, Any]: The verified ffprobe metadata.
+    """
     result = ffprobe(settings, ["-show_entries",
         "stream=codec_type,codec_name,profile,pix_fmt,sample_rate,avg_frame_rate,duration:format=duration",
         str(path)])

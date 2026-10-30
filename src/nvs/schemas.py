@@ -10,6 +10,7 @@ from .export_presets import CUSTOM, LEGACY_CUSTOM, LEGACY_HEVC_CQ20, RECIPES, se
 
 
 class Profile(StrEnum):
+    """Name the four supported native rendering characters."""
     FAITHFUL = "Faithful"
     NATURAL = "Natural"
     CINEMATIC = "Strong / Cinematic"
@@ -38,20 +39,46 @@ PRESETS: dict[Profile, dict[str, float | int]] = {
 
 
 class Clip(BaseModel):
-    """Half-open source interval [start, end), expressed in seconds."""
+    """Represent a half-open source interval in seconds, optionally ending at EOF.
+
+    Args:
+        start (float): The inclusive source start time in seconds.
+        end (float | None): The exclusive source end time, or None for EOF.
+    """
 
     model_config = ConfigDict(extra="forbid")
     start: float = Field(ge=0, le=864000)
     end: float | None = Field(default=None, gt=0, le=864000)
 
     @model_validator(mode="after")
-    def validate_bounds(self):
+    def validate_bounds(self) -> Clip:
+        """Reject an explicit clip end that does not follow its start.
+
+        Returns:
+            Clip: The validated clip instance.
+        """
         if self.end is not None and self.end <= self.start:
             raise ValueError("Clip end must be greater than start")
         return self
 
 
 class RenderOptions(BaseModel):
+    """Validate native rendering parameters, export choices, and selected clips.
+
+    Args:
+        profile (Profile): The native rendering character.
+        codec (Literal['H.264', 'HEVC', 'AV1']): The display codec name.
+        container (Literal['MP4', 'MKV']): The output container.
+        quality (Literal['High', 'Balanced', 'Small', 'Lossless']): The Custom export quality level.
+        export_preset (str): The named export recipe or Custom.
+        target_fps (Literal['Source', '60']): Source timing or conversion to 60 FPS.
+        clips (list[Clip]): The ordered source intervals to keep; empty means the full video.
+        warmup_frames (int): The native warmup count.
+        intensity (float | None): The optional overall strength override.
+        local_tone (float | None): The optional local-tone override.
+        local_structure (float | None): The optional local-detail override.
+        skin_structure (float | None): The optional skin-detail override.
+    """
     model_config = ConfigDict(extra="forbid")
     profile: Profile = Profile.CINEMATIC
     codec: Literal["H.264", "HEVC", "AV1"] = "H.264"
@@ -74,7 +101,12 @@ class RenderOptions(BaseModel):
     skin_structure: float | None = Field(default=None, ge=-1, le=3)
 
     @model_validator(mode="after")
-    def compatible(self):
+    def compatible(self) -> RenderOptions:
+        """Reject unsupported export combinations and unordered or overlapping clips.
+
+        Returns:
+            RenderOptions: The validated render options instance.
+        """
         if self.codec == "AV1" and self.quality == "Lossless":
             raise ValueError("AV1 lossless is not supported by the upstream NVENC pipeline")
         previous_end = 0.0
@@ -89,6 +121,11 @@ class RenderOptions(BaseModel):
         return self
 
     def native(self) -> dict[str, float | int]:
+        """Combine the chosen native profile defaults with explicit slider overrides.
+
+        Returns:
+            dict[str, float | int]: The effective native integer and floating-point parameters.
+        """
         values = PRESETS[self.profile].copy()
         for key in ("intensity", "local_tone", "local_structure", "skin_structure"):
             value = getattr(self, key)
@@ -98,17 +135,31 @@ class RenderOptions(BaseModel):
 
 
 class JobRequest(BaseModel):
+    """Describe an uploaded video and the options for a queued render.
+
+    Args:
+        upload_id (str): The source upload identifier.
+        options (RenderOptions): The validated rendering options.
+    """
     upload_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     options: RenderOptions = Field(default_factory=RenderOptions)
 
 
 class PreviewRequest(BaseModel):
+    """Describe an uploaded video, timestamp, and still-image preview options.
+
+    Args:
+        upload_id (str): The source upload identifier.
+        timestamp (float): The preview time in seconds.
+        options (RenderOptions): The validated rendering options.
+    """
     upload_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     timestamp: float = Field(default=0, ge=0, le=864000)
     options: RenderOptions = Field(default_factory=RenderOptions)
 
 
 class Status(StrEnum):
+    """Enumerate the lifecycle states of a render job."""
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -117,10 +168,34 @@ class Status(StrEnum):
 
 
 def now_utc() -> datetime:
+    """Get the current timezone-aware UTC timestamp.
+
+    Returns:
+        datetime: The current UTC datetime.
+    """
     return datetime.now(timezone.utc)
 
 
 class JobView(BaseModel):
+    """Expose persisted job status, timing, progress, and output filenames.
+
+    Args:
+        id (str): The unique record identifier.
+        filename (str): The original source filename.
+        upload_id (str): The source upload identifier.
+        options (RenderOptions): The validated rendering options.
+        status (Status): The job lifecycle state.
+        progress (float): The completion fraction from zero to one.
+        message (str): The current status description.
+        created_at (datetime): The job creation timestamp.
+        started_at (datetime | None): The render start timestamp, if started.
+        finished_at (datetime | None): The completion timestamp, if finished.
+        error (str | None): The failure description, if any.
+        output_filename (str | None): The verified video filename, if completed.
+        report_filename (str | None): The evidence report filename, if completed.
+        frames (int | None): The processed native frame count.
+        elapsed_seconds (float | None): The measured render duration, if completed.
+    """
     id: str
     filename: str
     upload_id: str

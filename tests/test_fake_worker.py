@@ -2,8 +2,10 @@
 
 This does NOT establish DLSS model compatibility or inference validity.
 """
+
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -14,7 +16,15 @@ from nvs.schemas import RenderOptions
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Test-only shebang executable used on Unix")
-def test_native_worker_pipe_roundtrip(tmp_path):
+def test_native_worker_pipe_roundtrip(tmp_path: Path) -> None:
+    """Exercise binary frame interoperability with a fake worker, without DLSS inference.
+
+    Args:
+        tmp_path (Path): The isolated temporary directory supplied by pytest.
+
+    Returns:
+        None: No value is returned.
+    """
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     worker = runtime / "nvngx.dll"

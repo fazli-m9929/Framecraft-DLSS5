@@ -14,22 +14,52 @@ ALLOWED_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v"}
 
 @dataclass(frozen=True)
 class UploadInfo:
+    """Describe an uploaded video and its stored filesystem location.
+
+    Args:
+        id (str): The unique record identifier.
+        name (str): The original filename or encoder preset name.
+        size (int): The stored video size in bytes.
+        path (Path): The stored video path.
+    """
     id: str
     name: str
     size: int
     path: Path
 
-    def public(self) -> dict:
+    def public(self) -> dict[str, str | int]:
+        """Serialize upload metadata without exposing the storage path.
+
+        Returns:
+            dict[str, str | int]: The upload identifier, original name, and byte size.
+        """
         return {"id": self.id, "name": self.name, "size": self.size}
 
 
 class UploadStore:
-    def __init__(self, settings: Settings):
+    """Persist uploaded videos and their metadata under the data directory."""
+    def __init__(self, settings: Settings) -> None:
+        """Create the upload storage directory and retain its settings.
+
+        Args:
+            settings (Settings): Application paths, limits, and runtime configuration.
+
+        Returns:
+            None: No value is returned.
+        """
         self.settings = settings
         self.directory = settings.data / "uploads"
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def get(self, upload_id: str) -> UploadInfo | None:
+        """Look up an upload by its validated hexadecimal identifier.
+
+        Args:
+            upload_id (str): The stored upload hexadecimal identifier.
+
+        Returns:
+            UploadInfo | None: The stored upload, or None if invalid, missing, or unreadable.
+        """
         if len(upload_id) != 32 or any(x not in "0123456789abcdef" for x in upload_id):
             return None
         metadata = self.directory / f"{upload_id}.json"
@@ -45,6 +75,14 @@ class UploadStore:
         return None
 
     async def save(self, upload: UploadFile) -> UploadInfo:
+        """Stream an upload to disk while enforcing extension and size limits.
+
+        Args:
+            upload (UploadFile): The multipart video file to store and close.
+
+        Returns:
+            UploadInfo: The completed upload record.
+        """
         name = PureWindowsPath(upload.filename or "video.mp4").name[:200]
         extension = Path(name).suffix.lower()
         if extension not in ALLOWED_EXTENSIONS:

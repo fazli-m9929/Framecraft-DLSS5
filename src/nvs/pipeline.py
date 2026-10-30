@@ -5,10 +5,11 @@ import re
 import shutil
 import tempfile
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -16,23 +17,44 @@ import numpy as np
 from .config import Settings
 from .export_presets import selected_recipe
 from .guides import MotionGuide
-from .media import (effective_clips, exact_frame_count, mux_output, probe_video,
-                    start_encoder, verify_export)
+from .media import effective_clips, exact_frame_count, mux_output, probe_video, start_encoder, verify_export
 from .native import NeuralWorker, ProcessControl, RenderCancelled, hash_file
 from .schemas import RenderOptions
+
+if TYPE_CHECKING:
+    import av
 
 ProgressCallback = Callable[[float, str], None]
 
 
 @dataclass(frozen=True)
 class RenderResult:
+    """Describe a verified rendered video, evidence report, and timing.
+
+    Args:
+        video (Path): The verified rendered video path.
+        report (Path): The JSON evidence report path.
+        frames (int): The processed native frame count.
+        elapsed (float): The elapsed render time in seconds.
+    """
     video: Path
     report: Path
     frames: int
     elapsed: float
 
 
-def rgba_frame(frame, width: int, height: int, rotation: int) -> np.ndarray:
+def rgba_frame(frame: av.VideoFrame, width: int, height: int, rotation: int) -> np.ndarray:
+    """Normalize a decoded frame to contiguous RGBA8 with rotation and letterboxing.
+
+    Args:
+        frame (av.VideoFrame): The decoded PyAV video frame.
+        width (int): The output frame width in pixels.
+        height (int): The output frame height in pixels.
+        rotation (int): The source rotation metadata in degrees.
+
+    Returns:
+        np.ndarray: The RGBA8 image with shape (height, width, 4).
+    """
     image = frame.to_ndarray(format="rgba")
     # Some input decoders automatically apply rotation metadata; avoid double rotation.
     if rotation in (90, 270) and image.shape[:2] == (width, height):
@@ -53,29 +75,55 @@ def rgba_frame(frame, width: int, height: int, rotation: int) -> np.ndarray:
 
 
 def clip_for_timestamp(seconds: float, clips: list[tuple[float, float]]) -> int | None:
+    """Find the half-open selected clip containing a timestamp.
+
+    Args:
+        seconds (float): The source timestamp in seconds.
+        clips (list[tuple[float, float]]): The ordered, half-open source intervals in seconds.
+
+    Returns:
+        int | None: The matching clip index, or None when excluded.
+    """
     for i, (start, end) in enumerate(clips):
         if start <= seconds < end:
             return i
     return None
 
 
-def frame_seconds(frame, index: int, input_tb: Fraction, rate: Fraction) -> float:
+def frame_seconds(frame: av.VideoFrame, index: int, input_tb: Fraction, rate: Fraction) -> float:
+    """Convert a frame timestamp to seconds, falling back to its nominal index.
+
+    Args:
+        frame (av.VideoFrame): The decoded PyAV video frame.
+        index (int): The zero-based source or worker frame index.
+        input_tb (Fraction): The source timestamp time base.
+        rate (Fraction): The nominal source frame rate.
+
+    Returns:
+        float: The source-frame timestamp in seconds.
+    """
     if frame.pts is not None:
         return float(frame.pts * input_tb)
     return float(Fraction(index, 1) / rate)
 
 
 def iter_clip_frames(
-    container, stream, clips: list[tuple[float, float]],
+    container: av.container.InputContainer, stream: av.video.stream.VideoStream, clips: list[tuple[float, float]],
     input_tb: Fraction, rate: Fraction,
     control: ProcessControl
-):
-    """Decode only requested time ranges, seeking over removed footage.
+) -> Iterator[tuple[int, av.VideoFrame, float]]:
+    """Decode selected time ranges with keyframe seeking shared by counting and rendering.
 
-    Both the preliminary frame counter and native renderer use this iterator.
-    This ensures the exact frame count in the worker header matches the frames
-    subsequently submitted, even for variable-frame-rate footage and cuts
-    between keyframes.
+    Args:
+        container (av.container.InputContainer): The open PyAV input container.
+        stream (av.video.stream.VideoStream): The binary input stream to read.
+        clips (list[tuple[float, float]]): The ordered, half-open source intervals in seconds.
+        input_tb (Fraction): The source timestamp time base.
+        rate (Fraction): The nominal source frame rate.
+        control (ProcessControl): The shared subprocess cancellation controller.
+
+    Returns:
+        Iterator[tuple[int, av.VideoFrame, float]]: An iterator of clip index, decoded frame, and source time in seconds.
     """
     for clip_index, (start, end) in enumerate(clips):
         control.check()
@@ -103,11 +151,18 @@ def count_clip_frames(
     input_tb: Fraction, rate: Fraction, control: ProcessControl,
     progress: ProgressCallback | None = None
 ) -> int:
-    """Count the exact frames consumed by DLSS, with progress and fast cut-seeking.
+    """Count exactly the selected frames while reporting progress and honoring cancellation.
 
-    The native worker expects an exact total in the initial header. This still
-    decodes *selected* footage once beforehand, but no longer decodes removed
-    footage or silently remains at 1% for the entire pass.
+    Args:
+        source (Path): The source video path.
+        clips (list[tuple[float, float]]): The ordered, half-open source intervals in seconds.
+        input_tb (Fraction): The source timestamp time base.
+        rate (Fraction): The nominal source frame rate.
+        control (ProcessControl): The shared subprocess cancellation controller.
+        progress (ProgressCallback | None): The callback accepting completion fraction and status text.
+
+    Returns:
+        int: The number of frames that will be submitted to the native worker.
     """
     import av
     count = 0
@@ -141,7 +196,20 @@ def render_video(
     options: RenderOptions, progress: ProgressCallback,
     control: ProcessControl
 ) -> RenderResult:
-    """Strict full-video feature-18 render. Never exposes a partial output as successful."""
+    """Render, mux, and verify a full native feature-18 job before committing outputs.
+
+    Args:
+        settings (Settings): Application paths, limits, and runtime configuration.
+        source (Path): The source video path.
+        original_name (str): The original upload filename used to name outputs.
+        job_id (str): The render job identifier.
+        options (RenderOptions): The validated native and export settings.
+        progress (ProgressCallback): The callback accepting completion fraction and status text.
+        control (ProcessControl): The shared subprocess cancellation controller.
+
+    Returns:
+        RenderResult: The verified output paths, processed frame count, and elapsed seconds.
+    """
     import av  # optional on diagnostics-only machines, required for rendering
 
     started = time.monotonic()

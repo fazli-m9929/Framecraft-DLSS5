@@ -1,291 +1,309 @@
-# Framecraft v0.3.2 — Export presets and network binding
+# Framecraft
 
-This patch fixes the false-negative HEVC Main10 detection in v0.3.1, moves
-`hvc1` tagging to the final MP4 mux (not the intermediate MKV), provides
-five clear NVENC export recipes, and adds `--host` / `--port` CLI flags.
+Framecraft is a local video editor and FastAPI web UI for the user-supplied native
+DLSS neural rendering **feature-18** worker used by
+[DLSS5-Video-Converter](https://github.com/perseval-BLR/DLSS5-Video-Converter).
+Upload recorded footage, choose a rendering character, keep selected cuts, and
+export a verified video with its original audio and a JSON evidence report.
 
-**Windows launch:**
+This is an independent, experimental integration, not an NVIDIA product. It does
+not include the proprietary worker, neural model, drivers, or FFmpeg. Profile
+names describe this application's parameter presets; actual visual results depend
+on the supplied native runtime and the footage.
 
-```powershell
-uv sync --extra dev
-uv run nvs doctor
-uv run nvs serve --host 0.0.0.0 --port 7860
-```
+## Requirements
 
-Open `http://127.0.0.1:7860` locally; from another machine on the same LAN
-open `http://YOUR-WINDOWS-PC-LAN-IP:7860`. Windows Firewall may need an inbound
-TCP 7860 rule. This app has **no login/authentication**: do not expose it to
-the public internet. Anyone who can reach the service can upload files and
-start GPU jobs.
-
-Alternatively set `NVS_HOST=0.0.0.0` in `.env` and use `uv run nvs serve`.
-Setting `0.0.0.0` is for binding, **not** a browser destination.
-
-**Encoder detection:** `ffmpeg -encoders` checks encoder availability in the
-selected FFmpeg build. It does not assume a 64x64/1fps synthetic encode is a
-reliable hardware probe. The real encoding process provides the authoritative
-hardware result and FFmpeg stderr is surfaced on failure. The native DLSS
-worker remains Windows-only and needs compatible GPU hardware.
-
-**Export recipes:**
-
-| Recipe | Video settings |
+| Component | Requirement |
 | --- | --- |
-| HEVC Main10 - Maximum quality (CQ18) | `hevc_nvenc`, P7, Main10, VBR CQ18, `p010le` |
-| HEVC Main10 - Balanced (CQ20) | `hevc_nvenc`, P7, Main10, VBR CQ20, `p010le` |
-| HEVC Main10 - Smaller files (CQ24) | `hevc_nvenc`, P7, Main10, VBR CQ24, `p010le` |
-| H.264 - Compatible (CQ20) | `h264_nvenc`, P6, VBR CQ20, `yuv420p` |
-| AV1 - Efficient (CQ20) | `av1_nvenc`, P6, VBR CQ20, `yuv420p`; hardware required |
-| Custom | Existing manual encoder/quality/container logic |
+| Python | 3.12–3.14; 3.12 or 3.13 is a practical starting point |
+| Package manager | [uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| Video rendering | Windows 10/11, compatible GeForce RTX hardware, working NVIDIA drivers, and the matching native worker/model |
+| GPU compatibility | RTX 30/40/50 names pass the application's filter; actual feature-18 compatibility still requires a real render |
+| Media tools | FFmpeg and ffprobe, downloaded separately; NVENC support for the fixed export recipes and `libx264` for browser samples |
+| Input | SDR video: MP4, MKV, WEBM, MOV, AVI, or M4V |
 
-All five recipes use MP4, AAC 384 kbps / 48 kHz when source audio exists, and
-faststart. Choose output 60 FPS or retain source FPS independently in the UI.
-60 FPS conversion does **not** interpolate with DLSS. The video is encoded
-once, then copied to the final MP4 while source audio is synchronized.
-Presets are **lossy**; Main10 packing does not restore precision absent from
-the RGBA8 native render frames. The default Balanced preset mirrors a popular
-HEVC P7 CQ20 workflow without referencing a particular game.
+The UI, API, and development tests run on Linux or CPU-only machines. **Native
+DLSS rendering does not:** the supplied worker uses Windows/D3D12. H100/H200 are
+not supported by default, and CUDA capability alone does not establish NGX/D3D12
+compatibility. HDR input is rejected. Processing keeps the source dimensions;
+this integration does not upscale video or generate interpolated frames.
 
-Legacy job files using `Standard` or `HEVC 10-bit / NVENC P7 CQ20` still load.
-Existing `runtime/`, `preview/`, `.env`, `data/` should be preserved on update.
+## Download and place the external files
 
----
+Download a Windows FFmpeg build via [ffmpeg.org/download.html](https://ffmpeg.org/download.html)
+that includes **both `ffmpeg.exe` and `ffprobe.exe`**. Extract the tools manually.
+Obtain the compatible `nvngx.dll` worker and matching `nvngx_dlssnr.dll` model
+separately from the upstream distribution you trust and are authorized to use.
+Consult the [upstream project](https://github.com/perseval-BLR/DLSS5-Video-Converter)
+for availability, provenance, and licensing; this repository does not host them.
+Keep worker and model versions together.
 
-# Framecraft v0.3 — redesigned editor UI and browser result playback
-
-The UI is a new **editor-style workspace** (Stage / Inspector / Render library) with an independent neutral/violet design rather than the earlier three dark cards. The Look, Export and Cuts inspector tabs preserve existing rendering options and DLSS native protocol. Upload, native frame render and HEVC P7/CQ20 settings remain unchanged.
-
-**New verified result viewers:** completed jobs expose `/api/jobs/{id}/video` (full original, browser codec-dependent) and `/api/jobs/{id}/sample` (cached first 12 seconds, 720p-or-smaller H.264/AAC for browser inspection). The sample comes from the completed neural output, not from the source. It does not re-render with DLSS. The original full output is unchanged and always downloadable. Samples may take time to encode and require FFmpeg with libx264.
-
-**Start here:** [QUICKSTART.md](QUICKSTART.md) contains exact PowerShell installation commands, GPU diagnostics, upload → render → view instructions and troubleshooting. The native feature-18 model cannot be validated without your working Windows RTX hardware.
-
----
-
-## New in v0.2.0: YouTube-quality export / synchronized clips
-
-**HEVC 10-bit / NVENC P7 CQ20** export profile reproduces the encoding settings used in the HEVC video processing workflow:
+Place the files relative to the cloned repository root as follows. Create the
+missing directories yourself; no import or launch scripts are required.
 
 ```text
--c:v hevc_nvenc -preset p7 -tune hq -profile:v main10
--rc vbr -cq 20 -b:v 0 -pix_fmt p010le -tag:v hvc1
--c:a aac -b:a 384k -ar 48000 -movflags +faststart -use_editlist 0
+framecraft/
+├── pyproject.toml
+├── uv.lock
+├── src/
+├── web/
+├── runtime/
+│   ├── nvngx.dll              # required native video worker executable
+│   └── nvngx_dlssnr.dll       # required matching neural model
+├── bin/
+│   └── ffmpeg/
+│       └── bin/
+│           ├── ffmpeg.exe
+│           └── ffprobe.exe
+├── preview/                   # optional, only for still-image comparisons
+│   ├── dlssnr-image.exe
+│   └── caller/
+│       └── nvngx.dll          # separate image caller, not the video worker
+└── data/                      # created/populated by the application
 ```
 
-This is *high quality lossy* HEVC/AAC. The original DLSS runtime consumes RGBA8, so packing its rendered output in 10-bit HEVC does **not** restore missing 10-bit color information.
+The main `runtime/nvngx.dll` is an executable worker invoked with `--video`, despite
+its extension. **Do not substitute an ordinary NVIDIA driver DLL.** Verify the
+source and integrity of these external binaries before running them. The optional
+preview executable and its caller come from the compatible upstream preview
+package. When needed, the app copies the model from `runtime/` into `preview/`.
+Video rendering does not require the optional image-preview files.
 
-Choose **60 FPS** to match the sample command. FFmpeg will duplicate/drop frames if necessary; DLSS feature 18 itself does not interpolate to 60 FPS. Output validation distinguishes native processed frame count from the CFR-encoded frame count.
+Instead of bundling FFmpeg under `bin/`, you can install `ffmpeg` and `ffprobe` on
+`PATH` or set explicit paths in `.env`:
 
-To keep exactly the intended portions of a recording, enter these segments in the English web UI:
+```dotenv
+NVS_FFMPEG=C:/Tools/ffmpeg/bin/ffmpeg.exe
+NVS_FFPROBE=C:/Tools/ffmpeg/bin/ffprobe.exe
+```
+
+Lookup order is an explicit override, the bundled `bin/ffmpeg/bin/` directory,
+then `PATH`. Run diagnostics below to check which executables were selected.
+Linux development can use system FFmpeg/ffprobe, but that does not enable native
+DLSS rendering.
+
+## Install and run with uv
+
+In PowerShell, from the directory where you want the checkout:
+
+```powershell
+git clone https://github.com/fazli-m9929/framecraft.git
+cd framecraft
+uv sync --frozen
+uv run nvs doctor
+uv run nvs serve
+```
+
+`uv sync --frozen` installs the locked application dependencies into `.venv`.
+There is no Node/frontend build. Download and place the external files before
+expecting a render to work. Configuration is optional: if you need overrides,
+copy `.env.example` to `.env` manually and edit it without overwriting an existing
+configuration.
+
+Open **http://127.0.0.1:7860** in your browser. Interactive API documentation is at
+**http://127.0.0.1:7860/docs**. Stop the server with **Ctrl+C**.
+
+`uv run nvs doctor` reports `gpus`, `missing`, `ffmpeg`, `ffprobe`,
+`render_available`, `preview_available`, and `reason`. A true render flag means
+basic prerequisites passed; it is not proof that inference succeeds.
+
+To select another local port:
+
+```powershell
+uv run nvs serve --host 127.0.0.1 --port 7861
+```
+
+The application has no authentication. Keep the default loopback binding. Anyone
+who can reach the server can upload files and submit native jobs; do not expose
+it directly to the public internet.
+
+## UI example: render a short gameplay clip
+
+![Framecraft editor with Natural selected and a synthetic source clip](docs/images/editor-example.png)
+
+The screenshot shows the real editor on Linux with a synthetic test clip. Native
+rendering is unavailable on that host; it is a UI example, not a DLSS output sample.
+
+Start with a 5–10 second SDR recording on your compatible Windows RTX machine.
+
+1. Click **+ Add footage** or drop the video into the Stage. Play the source to
+   check that you selected the intended file.
+2. In **Look**, select **Natural** for a moderate starting point. Selecting a
+   character resets the four sliders to that character's defaults. Leave
+   **Warmup frames** at **120** for the first test.
+3. In **Export**, choose **H.264 - Compatible (CQ20)** for broad player support.
+   Choose **Source** for output frame rate so this test keeps the original rate.
+4. In **Cuts**, enter `0-5` to retain the first five seconds, or leave the field
+   empty to process the whole video.
+5. Click **Render with DLSS** and watch **Render queue** for progress. Failed jobs
+   show an error; only completed and verified jobs expose downloadable results.
+6. On the completed job, click **▶ Watch 12s sample**. For this short example the
+   sample contains the available output, up to 12 seconds. It is an H.264/AAC
+   viewing copy of the actual processed result, not a second DLSS render.
+7. Use **Try full playback** to open the original export in the browser, or
+   **↓ Download full video** to view it in an external player. Open **JSON report**
+   to inspect frame counts, native result codes, selected settings, and binary hashes.
+
+If the optional image worker is installed, **Generate before / after** compares a
+single frame at the source player's current timestamp. It uses a separate static
+image path with narrower control ranges, so it may differ from the temporal
+video render. Use the completed video to judge motion and temporal artifacts.
+
+For a longer recording, this Cuts example keeps the first 547 seconds and then
+resumes at 945 seconds through the end:
 
 ```text
 0-547
 945-end
 ```
 
-The app counts the selected decoded video frames first, seeks past excluded sections in both the counting and rendering passes, reports counting progress, resets optical flow at edits, and uses `atrim` / `asetpts` / `concat` / `aresample` / `apad` for synchronized original-source audio. The FFmpeg mux step copies already-compressed HEVC without re-encoding video again. Counting clips requires one additional source-video decode pass. Multiple clips are supported in chronological order, without overlaps.
+Times are in seconds, decimals are allowed, starts are inclusive, and ends are
+exclusive. Intervals must be chronological and nonoverlapping; an `end` interval
+must be last. The same intervals trim source audio, and motion history resets at
+cuts. Selected footage is decoded once to count frames and again for rendering.
 
-`ffprobe` validates the output has HEVC 10-bit 4:2:0, AAC 48 kHz (if source had audio), chosen frame rate, and approximately the selected duration. A native DLSS render still requires the supplied Windows worker, model and a compatible RTX GPU; these binaries are not included.
+## Rendering characters: Faithful, Natural, Cinematic, Extreme
 
-The settings can also be submitted to `/api/jobs`:
+These presets change native parameters, not the underlying model. Their intended
+character is a tuning guide, not a guaranteed before/after result. No compatible
+Windows RTX runtime was available for visual validation in the Linux development
+environment.
 
-```json
-{
-  "upload_id": "YOUR_UPLOAD_UUID_HEX",
-  "options": {
-    "profile": "Natural",
-    "export_preset": "HEVC 10-bit / NVENC P7 CQ20",
-    "target_fps": "60",
-    "codec": "HEVC",
-    "container": "MP4",
-    "clips": [{"start": 0, "end": 547}, {"start": 945, "end": null}]
-  }
-}
-```
+| Rendering character | Intended starting point | Intensity | Local tone | Local structure | Skin structure |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Faithful | A restrained treatment when retaining the source look matters most | 0.70 | 0.75 | 0.75 | -1.00 |
+| Natural | Moderate processing; a useful first comparison against the source | 1.00 | 1.00 | 1.00 | -1.00 |
+| Strong / Cinematic | A stronger, more stylized treatment; the initial UI default | 1.65 | 1.40 | 1.50 | 1.00 |
+| Extreme / Overdrive | An aggressive experiment for comparing the model's response | 2.50 | 2.00 | 2.00 | 1.50 |
 
-**Important:** Actual end-to-end audio synchronization must be checked on the target Windows RTX PC with representative source clips. Handling of exotic/VFR source timestamps may require targeted adjustments. Do not treat metadata verification as proof of frame-perfect A/V synchronization.
+Faithful and Natural differ in the native profile/style identifiers as well as
+slider strengths. Lowering Cinematic's sliders therefore does not necessarily
+reproduce Faithful. For reference, the exact hidden native defaults are:
 
----
+| Character | profile | preset | style | auto_mask | ui_correction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Faithful | 0 | 0 | 0 | 0 | 0 |
+| Natural | 1 | 0 | 1 | 0 | 0 |
+| Strong / Cinematic | 2 | 2 | 2 | 1 | 0 |
+| Extreme / Overdrive | 2 | 2 | 2 | 1 | 0 |
 
-# Neural Video Studio
+These are upstream worker identifiers/flags, not separate exposed controls. Their
+internal algorithms are not defined by this Python wrapper. Do not confuse the
+native `preset` identifier with FFmpeg's P6/P7 encoding preset.
 
-A **local, English-first** FastAPI web application for processing recorded video using the **existing native NVIDIA DLSS Neural Rendering feature-18 worker** from [`perseval-BLR/DLSS5-Video-Converter`](https://github.com/perseval-BLR/DLSS5-Video-Converter).
+### Look controls
 
-**This is an independent, experimental integration.** It is not an NVIDIA product. The app does *not* include a neural model, a driver, a GPU implementation of DLSS, or any NVIDIA-modified DLLs. You provide the original worker and model yourself.
+| Setting | Range/default | What to expect when tuning |
+| --- | --- | --- |
+| Intensity | 0–3; profile-dependent | Overall native strength input. Try lower values for subtler treatment and higher values for a stronger effect; zero is not guaranteed to bypass inference. |
+| Local tone | 0–3; profile-dependent | Native local-tone input, intended to influence local tonal/contrast treatment. Compare shadows and highlights as you adjust it. It is not a documented exposure or gamma control. |
+| Local structure | 0–3; profile-dependent | Native local-detail/structure input. Compare textures and edges; stronger settings may exaggerate detail or artifacts depending on the model. |
+| Skin structure | -1–3; profile-dependent | Native skin-detail input. `-1` is passed through as the upstream sentinel used by Faithful/Natural; its exact internal behavior is runtime-defined. Positive values request explicit skin-structure tuning. |
+| Warmup frames | 0–1000; default 120 | Count passed in the worker startup header for temporal initialization. It does not select output FPS or add a UI trim. Exact warmup handling and cost are runtime-dependent; keep the default initially. |
 
-> **State of validation:** Python modules, local web/API behavior and packet-layout checks can be tested without an RTX GPU. A full native DLSS render can only be validated on a compatible Windows RTX PC with the actual runtime; no such verification was performed in the build environment. Do not assume that successful startup means feature 18 itself works.
+The video wrapper forwards the slider values without simulating their effects.
+The separate image preview clamps intensity/tone/structure to 0–2 and skin to
+-1–2. To compare settings, render the same short cut with one change at a time;
+inspect faces, fine textures, scene transitions, ghosting, and flicker in motion.
+Higher numbers are not automatically better quality.
 
-## Supported and unsupported environments
+## Export settings
 
-| Host | Web UI / API | DLSS feature-18 worker | Notes |
-|---|---|---|---|
-| Windows 10/11 + RTX 50 | Yes | Expected; runtime-dependent | Check driver/runtime |
-| Windows 10/11 + RTX 40 | Yes | Experimental; runtime-dependent | Upstream reported |
-| Windows 10/11 + RTX 30 | Yes | Experimental, potentially slow | Upstream beta |
-| Windows + H100 or H200 | Yes | Unverified, not supported by default | CUDA capability is not a replacement for NGX + D3D12 compatibility |
-| Linux + H100/H200 | Yes | **No**, provided worker is Windows/D3D12-only | No Wine or CPU emulation claim |
-| CPU-only | Yes | **No** | CPU FFmpeg encoding is not CPU DLSS inference |
+Export controls affect compression, file compatibility, and timing after native
+processing. They do not change the DLSS model or restore detail it did not emit.
 
-The `NVS_ALLOW_UNVERIFIED_GPU=true` flag only disables name filtering *on Windows*. It **does not** create hardware compatibility, enable Linux, or prove that feature 18 can execute. Default is false.
+| Export recipe | Encoder and format | Intended tradeoff |
+| --- | --- | --- |
+| HEVC Main10 - Maximum quality (CQ18) | `hevc_nvenc`, P7, Main10, `p010le` | Lower CQ target, generally larger files and less compression |
+| HEVC Main10 - Balanced (CQ20) | `hevc_nvenc`, P7, Main10, `p010le` | Default balance of quality and size |
+| HEVC Main10 - Smaller files (CQ24) | `hevc_nvenc`, P7, Main10, `p010le` | Higher compression, generally smaller files |
+| H.264 - Compatible (CQ20) | `h264_nvenc`, P6, `yuv420p` | Broad player compatibility |
+| AV1 - Efficient (CQ20) | `av1_nvenc`, P6, `yuv420p` | Efficient compression; requires compatible AV1 hardware and players |
+| Custom | Choose codec, container, and quality | Manual encoding choices |
 
-## Setup on Windows (PowerShell)
+All five fixed recipes use MP4, VBR constant-quality encoding, faststart, and
+AAC 384 kbps / 48 kHz when source audio exists. They require the named NVENC
+encoder; a listed encoder does not guarantee the GPU can execute it. CQ values
+are quality targets, not fixed bitrates or directly comparable across codecs.
+P7/P6 are encoding effort presets, not DLSS strength controls.
 
-Requirements: Python 3.12/3.13, [`uv`](https://docs.astral.sh/uv/), NVIDIA drivers and the **runtime files you already acquired and verified**.
+**Main10 is still lossy and the native frames are RGBA8.** Packing them into a
+10-bit file does not recover missing 10-bit precision or make the source HDR.
+Video is encoded once, then copied into the final container during audio muxing.
 
-```powershell
-cd neural-video-studio
-uv sync --extra dev
-Copy-Item .env.example .env
-```
+| Other setting | Behavior |
+| --- | --- |
+| Output frame rate: Source | Keep source timing rather than requesting 60 FPS conversion. |
+| Output frame rate: 60 | FFmpeg duplicates/drops frames to make 60 FPS; DLSS does not interpolate new motion frames. The UI initially selects 60; the API default is Source. |
+| Custom codec | H.264, HEVC, or AV1. The implementation selects an available NVENC encoder first, with CPU encoder selection for H.264/HEVC when NVENC is not listed. It does not retry a failed NVENC hardware job on CPU. CPU encoding does not enable CPU DLSS inference. |
+| Custom container | MP4 or MKV. Fixed recipes require MP4. Browser playback depends on both codec and container. |
+| Custom quality: High / Balanced / Small | CQ or CRF 17 / 20 / 24 respectively; lower targets generally retain more detail at larger sizes. |
+| Custom quality: Lossless | Requests lossless video encoding for H.264/HEVC. It does not undo native changes or guarantee lossless audio; AV1 lossless is rejected. |
+| Cuts | Process only the retained source intervals; blank means the full recording. |
 
-### Import binaries from your working upstream installation
+Legacy job recipe names `Standard` and `HEVC 10-bit / NVENC P7 CQ20` still load as
+Custom and the balanced HEVC recipe respectively.
 
-If the original converter is at `C:\Users\MohammadReza\Desktop\test\DLSS5-Video-Converter`, for example:
+## Configuration and saved files
 
-```powershell
-.\scripts\import-runtime.ps1 -Source 'C:\Users\MohammadReza\Desktop\test\DLSS5-Video-Converter'
-```
+All `.env` entries are optional. Paths are relative to the repository root unless
+absolute. Existing environment variables take precedence over `.env` values.
 
-The script accepts an upstream source checkout containing `bin/`, or an extracted portable build at `dist\DLSS5VideoConverter`. It copies the following if present:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NVS_HOST` | `127.0.0.1` | Local server bind address |
+| `NVS_PORT` | `7860` | Server TCP port |
+| `NVS_RUNTIME_DIR` | `runtime` | Video worker and model directory |
+| `NVS_PREVIEW_DIR` | `preview` | Optional image worker directory |
+| `NVS_DATA_DIR` | `data` | Uploads, job records, outputs, and temporary files |
+| `NVS_FFMPEG` / `NVS_FFPROBE` | Automatic lookup | Explicit paths to the media executables |
+| `NVS_MAX_UPLOAD_GB` | `20` | Maximum size of one upload, in GiB |
+| `NVS_ALLOW_UNVERIFIED_GPU` | `false` | Bypass GPU-name filtering on Windows only; does not establish compatibility |
 
-```text
-neural-video-studio/
-├── runtime/
-│   ├── nvngx.dll            <-- native executable/worker, not a normal DLL entrypoint
-│   └── nvngx_dlssnr.dll     <-- proprietary modified neural model
-├── bin/ffmpeg/bin/
-│   ├── ffmpeg.exe
-│   └── ffprobe.exe
-└── preview/
-    ├── dlssnr-image.exe    <-- optional image preview
-    └── caller/nvngx.dll    <-- optional image caller
-```
+Uploads remain in `data/uploads/`, job status in `data/jobs/`, verified videos and
+reports in `data/outputs/`, and viewing samples in `data/samples/`. Temporary work
+uses `data/scratch/`. Jobs run one at a time; interrupted jobs are marked failed
+after a server restart. There is no automatic upload/output retention cleanup.
+Allow space for source copies, intermediates, outputs, and samples. Preserve
+`.env`, `runtime/`, `preview/`, manually installed tools, and `data/` when updating.
 
-If you have FFmpeg already installed, `bin/ffmpeg/` can be omitted. The app finds FFmpeg on `PATH` or through `NVS_FFMPEG` and `NVS_FFPROBE`. The optional preview image worker uses a *separate* `preview/caller/nvngx.dll` from the main video worker.
+## Troubleshooting
 
-**Do not copy the original `nvngx.dll` from an arbitrary graphics driver.** In the upstream package, the main `nvngx.dll` is a modified executable used via stdin/stdout with the `--video` argument. The implementation requires *this exact interface*. Keep its model version and worker version together.
+- **Render unavailable:** run `uv run nvs doctor`; inspect `missing`, `gpus`, and
+  `reason`. Check Windows, drivers, matching runtime files, and tool paths.
+- **FFmpeg/ffprobe missing:** check the directory layout or configure both absolute
+  executable paths. Inspect `ffmpeg -encoders` in the selected build for the needed
+  encoder. Browser samples require `libx264`.
+- **Encoder listed but render fails:** encoder listing checks build support, not
+  actual GPU execution. Read the surfaced FFmpeg error for driver/hardware issues.
+- **Still preview unavailable:** add the optional image executable and its separate
+  caller, or skip preview and judge a short completed video.
+- **HEVC/Main10 or MKV won't play in the browser:** use the 12-second sample or
+  download the full file for an external player. Samples do not alter full output.
+- **Unexpected appearance:** compare Faithful and Natural on the same short SDR
+  clip, then adjust one control at a time. Motion vectors are estimated with
+  OpenCV DIS, not supplied by a game engine; artifacts remain possible.
+- **A/V sync concerns:** check a real exported sample in motion. Metadata/frame
+  checks are useful evidence, not proof of frame-perfect sync for every VFR source.
 
-### Diagnose
-
-```powershell
-uv run nvs doctor
-```
-
-Expect `render_available: true` only if the OS, file presence and GPU-name prerequisites are met. It is **not** a real inference test.
-
-### Run
-
-```powershell
-uv run nvs serve
-```
-
-Open `http://127.0.0.1:7860`. API documentation at `http://127.0.0.1:7860/docs`.
-
-Alternatively run `./scripts/run.ps1` to sync development dependencies and start.
-
-## Workflow
-
-1. Add a local MP4/MKV/WEBM/MOV/AVI video. Upload is copied to `data/uploads/` in chunks, not buffered entirely into memory.
-2. Select one of four original native profiles; use sliders to override parameters.
-3. Configure encoder (H.264, HEVC, AV1), quality and container. NVENC is probed by actually encoding a test frame. H.264/HEVC fall back to CPU FFmpeg encoders if necessary; AV1 requires NVENC.
-4. Optionally preview a frame with the **separate** `dlssnr-image.exe` (the preview accepts narrower parameter ranges; the UI reports this).
-5. Click Render. A single render executes; further jobs queue. Polling updates progress, and Stop terminates active worker and encoder processes.
-6. Completed files appear in `data/outputs/` with a JSON evidence report. Failed/cancelled work doesn't get a successful output.
-
-**Reports include:** input metadata, chosen native parameters, feature-18 creation result, count of successful native frame evaluations, exact output frame count, CUDA driver GPU name (from `nvidia-smi`), SHA-256 hashes of both binaries, encoder and log tails.
-
-**Limitations:** SDR/RGBA8 only. HDR inputs are *rejected* instead of silently losing HDR color. Engine motion vectors are not available in prerecorded videos, so optical flow is estimated using OpenCV DIS; ghosting and scene-transition artifacts are possible. The native image preview can differ from the temporal video model output. This project is not a DLSS image/video *upscaler*: output dimensions remain source dimensions. The worker may require unofficial patched binaries and may fail on other GPUs/versions.
-
-## Architecture
-
-```text
-web/ (HTML/CSS/JS, English, no Node build)
-   └── /api (FastAPI)
-       ├── uploads.py      streamed input staging
-       ├── jobs.py         single-GPU queue, cancellation, persistent status
-       ├── schemas.py      Pydantic parameters and profiles
-       ├── hardware.py     Windows/RTX/driver capability checks
-       ├── preview.py      optional image-only native worker
-       ├── pipeline.py     decode → optical flow → feature-18 → encode → mux → verify
-       ├── guides.py       OpenCV DIS motion vectors (current → previous)
-       ├── native.py       exact packet protocol + native subprocess + logs
-       ├── media.py        ffprobe/ffmpeg wrappers, NVENC fallback, audio mux
-       └── config.py       environment-based settings
-```
-
-### Native worker packet layout
-
-The upstream code documents the binary protocol; this project uses the same constants and structures (little-endian):
-
-```text
-startup: <10I4f>    VIDEO_MAGIC, width, height, warmup, frame_count,
-                     profile, preset, style, auto_mask, ui_correction,
-                     intensity, tone, structure, skin
-
-frame:   <4Iq>      FRAME_MAGIC, frame_index, reset, reserved, source_pts
-         RGBA8      width * height * 4 bytes
-         FP16 flow  width * height * 2 vectors * 2 bytes, current-to-previous
-
-result:  <5Iq>      OUTPUT_MAGIC, index, ok, rgba_size, ngx_result, pts
-         RGBA8      rgba_size bytes
-```
-
-`ngx_result == 1` and a valid response packet are required **on every frame**. The worker must also report successful feature-18 creation, and the output is decoded and counted by ffprobe before committing. Strict mode: a failed frame aborts the job. This package does not patch, emulate or reverse-engineer proprietary graphics binaries.
-
-## API
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/api/health` | Liveness |
-| GET | `/api/capabilities` | GPU, runtime, FFmpeg and preview checks |
-| GET | `/api/presets` | Default native parameters |
-| POST | `/api/uploads` | Multipart `file` upload |
-| POST | `/api/jobs` | `{ "upload_id": "...", "options": { ... } }` |
-| GET | `/api/jobs` | All known jobs |
-| GET | `/api/jobs/{id}` | Status and progress |
-| POST | `/api/jobs/{id}/cancel` | Cancel a queued/running job |
-| GET | `/api/jobs/{id}/download` | Verified video |
-| GET | `/api/jobs/{id}/report` | Feature-18 JSON evidence |
-| POST | `/api/preview` | `{ "upload_id": "...", "timestamp": 0, "options": { ... } }` |
-
-## Configuration
-
-Edit `.env` (all fields optional):
-
-```dotenv
-NVS_HOST=127.0.0.1
-NVS_PORT=7860
-NVS_RUNTIME_DIR=runtime
-NVS_PREVIEW_DIR=preview
-NVS_DATA_DIR=data
-NVS_MAX_UPLOAD_GB=20
-NVS_ALLOW_UNVERIFIED_GPU=false
-# NVS_FFMPEG=C:/ffmpeg/bin/ffmpeg.exe
-# NVS_FFPROBE=C:/ffmpeg/bin/ffprobe.exe
-```
-
-Paths relative to the project root. This is a **single-user localhost** application with no authentication. Do **not** bind to `0.0.0.0` or put it directly on the internet. The API can upload files and run native executables. If you later need remote or multi-user access, add authentication, authorization, rate limits, isolation and a persistent external queue.
-
-Job metadata is stored under `data/jobs/`, and unfinished jobs are marked failed upon restart. Uploaded videos remain on disk until deleted manually (intentional so you can rerender). There is no cleanup policy yet. Avoid storing sensitive videos without access controls and backups.
-
-## Development and tests
+## Development
 
 ```powershell
-uv sync --extra dev
+uv sync --frozen --extra dev
 uv run pytest -q
 uv run ruff check src tests
 ```
 
-Unit/API tests do not require NVIDIA hardware. Full end-to-end testing **does** require the original worker/model running on Windows with a compatible GPU; use a short 5–10 s SDR sample and compare results with the original upstream converter.
+The existing tests exercise API behavior, clip selection, motion guides, export
+arguments, browser samples, and the binary packet protocol. The fake-worker test
+checks interoperability only, not neural inference. Full native end-to-end
+validation still requires your Windows RTX machine and trusted runtime binaries.
 
-## Rights, safety, and provenance
+Python functions use input/output annotations and Google-style docstrings with a
+one-line summary, `Args` when applicable, and `Returns`. Class docstrings describe
+constructor fields or the class responsibility. The frontend is plain HTML/CSS/JS
+under `web/`; the Python application is under `src/nvs/`.
 
-- The application code in this package is an independent experimental wrapper; it does not bundle NVIDIA SDK code, model weights, modified DLLs or upstream source files.
-- **The original binary files may be modified, unsigned or restricted by licensing.** Check `others/THIRD_PARTY.md` in the upstream repository for provenance, hashes, and relevant license notices. Do not publish, redistribute or run DLLs you haven't vetted. Use an isolated machine when examining unknown binaries.
-- Reference repository: <https://github.com/perseval-BLR/DLSS5-Video-Converter> (consult original README, `core.py`, `guides.py`, and third-party notices).
-- FFmpeg is independently licensed and may impose additional obligations depending on the build you distribute.
-
-## Current scope / roadmap
-
-Implemented: English web UI, upload, configurable native parameter mapping, strict video conversion protocol, motion guides, NVENC/CPU **encoding**, audio mux, report, SHA hashes, preview image worker, queue, cancellation, persisted status, tests, and runtime diagnostics.
-
-Not implemented: Linux DLSS inference, CPU DLSS inference, direct H100/H200 DLSS support, authentication, multiple concurrent GPUs, adaptive optical-flow models, HDR, multiple audio/subtitle policies, distributed queue, browser upload resume, GPU scheduling. Those are separate engineering tasks and must not be advertised as functional.
+See [CHANGELOG.md](CHANGELOG.md) for release history and [LICENSE](LICENSE) for the
+application license. External FFmpeg builds, model files, and native workers have
+their own licensing and provenance requirements.
