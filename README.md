@@ -122,11 +122,13 @@ it directly to the public internet.
 
 ## UI example: render a short gameplay clip
 
-<!-- Replace docs/images/editor-example.png with your own screenshot; keep this filename. -->
-![Framecraft editor](docs/images/editor-example1.png)
-![Framecraft editor](docs/images/editor-example2.png)
+![Framecraft editor showing the still-image comparison with Natural selected](docs/images/editor-example1.png)
 
-Editor example with sample footage; the image is not a before/after render comparison.
+Framecraft’s still-image preview with Natural selected. Temporal video results may differ.
+
+![Close-up comparison of the processed frame on the left and the original frame on the right](docs/images/editor-example2.png)
+
+**Left: After (processed). Right: Before (original).**
 
 Start with a 5–10 second SDR recording on your compatible Windows RTX machine.
 
