@@ -126,9 +126,9 @@ it directly to the public internet.
 
 Framecraft’s still-image preview with Natural selected. Temporal video results may differ.
 
-![Close-up comparison of the processed frame on the left and the original frame on the right](docs/images/editor-example2.png)
+![Close-up comparison of the original frame on the left and the DLSS5-processed frame on the right](docs/images/editor-example2.png)
 
-**Left: After (processed). Right: Before (original).**
+**Left: Before (original). Right: After (DLSS5 processed).**
 
 Start with a 5–10 second SDR recording on your compatible Windows RTX machine.
 
