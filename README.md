@@ -30,27 +30,19 @@ this integration does not upscale video or generate interpolated frames.
 
 ## Download and place the external files
 
-Check the [Framecraft Releases page](https://github.com/fazli-m9929/framecraft/releases)
-for optional dependency downloads. **If a release provides a compatible Windows
-dependency archive**, download it from **Assets**, verify its published SHA-256
-checksum, and extract its contents into the repository root. Preserve the folder
-structure shown below: `runtime/` and `bin/` should sit beside `pyproject.toml`,
-not inside an extra archive-named folder. Review the release notes for the
-required Framecraft, worker/model, driver, and GPU versions before using it.
-GitHub's automatic **Source code** archives do not include separately uploaded
-release assets, and `uv sync` does not download these binaries.
+Download the native runtime ZIP from
+[the runtime release](https://github.com/fazli-m9929/framecraft/releases/tag/dependencies-v1)
+under **Assets**. Extract it into the Framecraft folder so `runtime/` and
+`preview/` sit beside `pyproject.toml`. Keep the supplied worker and model together.
+The automatic **Source code** downloads are not the runtime ZIP.
 
-A dependency archive is optional; these instructions do not imply one has already
-been published. If no suitable assets are available, download a Windows FFmpeg
-build via [ffmpeg.org/download.html](https://ffmpeg.org/download.html) containing
-**both `ffmpeg.exe` and `ffprobe.exe`**, and extract the tools manually. Obtain the
-compatible `nvngx.dll` worker and matching `nvngx_dlssnr.dll` model separately
-from a distribution you trust and are authorized to use. Consult the
-[upstream project](https://github.com/perseval-BLR/DLSS5-Video-Converter) for
-availability, provenance, and licensing. Keep worker and model versions together.
+**FFmpeg and ffprobe are not included in the runtime download.** Download a
+Windows build from [ffmpeg.org/download.html](https://ffmpeg.org/download.html)
+containing both `ffmpeg.exe` and `ffprobe.exe`. Place them under
+`bin/ffmpeg/bin/`, add their directory to `PATH`, or configure the paths in `.env`
+as shown below. `uv sync` installs Python dependencies, not these external tools.
 
-Place the files relative to the cloned repository root as follows. Create the
-missing directories yourself; no import or launch scripts are required.
+Expected folder layout when using bundled FFmpeg:
 
 ```text
 framecraft/
@@ -93,52 +85,6 @@ then `PATH`. Run diagnostics below to check which executables were selected.
 Linux development can use system FFmpeg/ffprobe, but that does not enable native
 DLSS rendering.
 
-### For maintainers: publish dependency downloads
-
-GitHub Releases can host binary archives separately from the source repository.
-Only upload files you have permission to redistribute. Access to a download or a
-working installation does not establish redistribution rights, particularly for
-modified native workers and proprietary models. If those rights are unclear,
-publish the setup instructions and an authorized upstream download link instead.
-For FFmpeg, follow the license obligations of the exact build you distribute,
-including applicable notices and corresponding-source requirements.
-
-1. Prepare a clean staging directory **outside the checkout**, for example
-   `C:/Framecraft-release-assets`. Copy only the intended dependency files into
-   `runtime/`, `bin/ffmpeg/bin/`, and optionally `preview/`, matching the layout
-   above. Include applicable license notices and a manifest recording the source
-   URLs, exact versions, original filenames, and supported Framecraft version.
-   Keep the matched worker/model pair in the same versioned archive. Do not
-   include `.env`, uploads, job data, credentials, or your entire installation.
-2. Create a versioned ZIP and checksum in PowerShell. These are **example names**;
-   choose a name that identifies the actual dependency bundle version:
-
-   ```powershell
-   $staging = 'C:/Framecraft-release-assets'
-   $archive = 'C:/Framecraft-dependencies-windows-v1.zip'
-   Compress-Archive -Path "$staging/*" -DestinationPath $archive
-   $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-   "$hash  $(Split-Path -Leaf $archive)" | Set-Content -Encoding ascii "$archive.sha256"
-   ```
-
-3. On [Framecraft Releases](https://github.com/fazli-m9929/framecraft/releases),
-   choose **Draft a new release**, select or create the appropriate version tag,
-   and describe the exact archive contents and compatibility requirements. Attach
-   the ZIP and `.sha256` file as release assets, then publish when ready. This is
-   a separate upload; do not commit the binaries to Git. You can also attach
-   approved assets to an existing release by editing it.
-4. Link to the release or its specific asset from the download instructions.
-   Prefer a versioned release link for reproducibility. If using another download
-   host, provide a stable HTTPS URL, the same version/compatibility notes,
-   checksums, and licensing information. Verify a fresh download extracts to the
-   documented locations and run `uv run nvs doctor` on the target Windows machine.
-
-To verify an archive before extracting it, compare the full result of
-`Get-FileHash -Algorithm SHA256 ./Framecraft-dependencies-windows-v1.zip` against
-the checksum published with the trusted release. A matching hash detects file
-changes; it does not independently establish the publisher's trustworthiness or
-prove hardware compatibility.
-
 ## Install and run with uv
 
 In PowerShell, from the directory where you want the checkout:
@@ -176,10 +122,10 @@ it directly to the public internet.
 
 ## UI example: render a short gameplay clip
 
-![Framecraft editor with Natural selected and a synthetic source clip](docs/images/editor-example.png)
+<!-- Replace docs/images/editor-example.png with your own screenshot; keep this filename. -->
+![Framecraft editor](docs/images/editor-example.png)
 
-The screenshot shows the real editor on Linux with a synthetic test clip. Native
-rendering is unavailable on that host; it is a UI example, not a DLSS output sample.
+Editor example with sample footage; the image is not a before/after render comparison.
 
 Start with a 5–10 second SDR recording on your compatible Windows RTX machine.
 
@@ -222,9 +168,8 @@ cuts. Selected footage is decoded once to count frames and again for rendering.
 ## Rendering characters: Faithful, Natural, Cinematic, Extreme
 
 These presets change native parameters, not the underlying model. Their intended
-character is a tuning guide, not a guaranteed before/after result. No compatible
-Windows RTX runtime was available for visual validation in the Linux development
-environment.
+character is a tuning guide; compare short renders on your own footage before
+choosing settings for a full recording.
 
 | Rendering character | Intended starting point | Intensity | Local tone | Local structure | Skin structure |
 | --- | --- | ---: | ---: | ---: | ---: |
