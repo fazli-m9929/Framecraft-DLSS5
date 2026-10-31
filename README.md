@@ -123,7 +123,8 @@ it directly to the public internet.
 ## UI example: render a short gameplay clip
 
 <!-- Replace docs/images/editor-example.png with your own screenshot; keep this filename. -->
-![Framecraft editor](docs/images/editor-example.png)
+![Framecraft editor](docs/images/editor-example1.png)
+![Framecraft editor](docs/images/editor-example2.png)
 
 Editor example with sample footage; the image is not a before/after render comparison.
 
